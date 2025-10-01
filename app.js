@@ -10,7 +10,7 @@ let state = loadState() || { players: {}, gameDays: [] };
 // --- Utilities ---
 function uid(){ return Math.random().toString(36).substr(2,9); }
 
-// --- Spielerverwaltung ---
+// --- Spieler ---
 function addPlayer(name){
   if(!name || Object.keys(state.players).length>=50) return;
   if(!state.players[name]){
@@ -31,12 +31,12 @@ function addMatchToGameDay(gameDayId, type="1v1"){
   const day = state.gameDays.find(gd=>gd.id===gameDayId);
   if(!day) return;
   const matchNumber = day.matches.length + 1;
-  const match = { id: uid(), number: matchNumber, type, teams: [], finished: false };
+  const match = { id: uid(), number: matchNumber, type, teams: [], finished: false, pendingRounds:{} };
   day.matches.push(match);
   render();
 }
 
-// --- Spieler für Match auswählen ---
+// --- Spieler auswählen ---
 function selectPlayers(gameDayId, matchId){
   const day = state.gameDays.find(gd=>gd.id===gameDayId);
   const match = day.matches.find(m=>m.id===matchId);
@@ -60,7 +60,7 @@ function selectPlayers(gameDayId, matchId){
   render();
 }
 
-// --- Rundeingabe per Buttons ---
+// --- Rundeingabe per Button ---
 function addRoundUI(gameDayId, matchId){
   const day = state.gameDays.find(gd=>gd.id===gameDayId);
   const match = day.matches.find(m=>m.id===matchId);
@@ -103,16 +103,13 @@ function addRoundUI(gameDayId, matchId){
       finishBtn.textContent="Runde abschließen";
       finishBtn.className="btn btn-danger";
       finishBtn.onclick=()=>{
-        if(playerRound.length<4 || playerRound.some(v=>v===undefined)){ alert("Bitte alle 4 Säcke wählen!"); return; }
-        match.teams[tIdx].rounds.push(playerRound);
-        const roundPoints = playerRound.reduce((a,b)=>a+b,0);
-        match.teams[tIdx].totalScore += roundPoints;
-        state.players[p].rounds.push(playerRound);
-        const oppIdx = tIdx===0?1:0;
-        const oppPoints = match.teams[oppIdx].rounds.flat().reduce((a,b)=>a+b,0);
-        state.players[p].opponentPoints += oppPoints;
-        state.players[p].averagePerSack = state.players[p].rounds.flat().reduce((a,b)=>a+b,0)/state.players[p].rounds.flat().length;
-        render();
+        if(playerRound.length<4 || playerRound.some(v=>v===undefined)){
+          alert("Bitte alle 4 Säcke wählen!");
+          return;
+        }
+        if(!match.pendingRounds[tIdx]) match.pendingRounds[tIdx]={};
+        match.pendingRounds[tIdx][p] = playerRound;
+        alert(`Runde für ${p} gespeichert!`);
       };
 
       playerDiv.appendChild(finishBtn);
@@ -129,17 +126,37 @@ function finishMatch(gameDayId, matchId){
   const match = day.matches.find(m=>m.id===matchId);
   if(!match || match.finished) return;
 
-  match.finished = true;
-  const winnerIdx = match.teams[0].totalScore>match.teams[1].totalScore?0:1;
+  // Prüfen, ob alle Spieler Runden haben
+  const incomplete = match.teams.some((team,tIdx)=>{
+    return team.players.some(p=>!match.pendingRounds[tIdx] || !match.pendingRounds[tIdx][p]);
+  });
+  if(incomplete){
+    alert("Nicht alle Spieler haben ihre Runde abgeschlossen!");
+    return;
+  }
 
+  // Punkte ins Match übertragen
   match.teams.forEach((team,tIdx)=>{
     team.players.forEach(p=>{
+      const round = match.pendingRounds[tIdx][p];
+      team.rounds.push(round);
+      const points = round.reduce((a,b)=>a+b,0);
+      team.totalScore += points;
+      state.players[p].rounds.push(round);
+      state.players[p].points += points;
+      const oppIdx = tIdx===0?1:0;
+      const oppPoints = match.teams[oppIdx].rounds.flat().reduce((a,b)=>a+b,0);
+      state.players[p].opponentPoints += oppPoints;
+      state.players[p].averagePerSack = state.players[p].rounds.flat().reduce((a,b)=>a+b,0)/state.players[p].rounds.flat().length;
       state.players[p].games++;
-      state.players[p].points += team.totalScore;
-      if(tIdx===winnerIdx) state.players[p].wins++;
     });
   });
 
+  // Sieger bestimmen
+  const winnerIdx = match.teams[0].totalScore>match.teams[1].totalScore?0:1;
+  match.teams[winnerIdx].players.forEach(p=>state.players[p].wins++);
+
+  match.finished = true;
   render();
 }
 
@@ -153,12 +170,12 @@ function leaderboard(){
   });
   return players;
 }
+
 // --- Render ---
 function render(){
   saveState(state);
   app.innerHTML="";
 
-  // Steuerung
   const ctrlDiv = document.createElement("div");
   ctrlDiv.innerHTML=`
     <button class="btn" onclick="addGameDay()">+ Spieltag</button>
@@ -166,20 +183,17 @@ function render(){
   `;
   app.appendChild(ctrlDiv);
 
-  // Spieltage
   state.gameDays.forEach(day=>{
     const div = document.createElement("div");
     div.className="card";
     div.innerHTML=`<h2>${day.name}</h2>`;
 
-    // Button Match hinzufügen
     const addMatchBtn = document.createElement("button");
     addMatchBtn.className="btn";
     addMatchBtn.textContent="+ Match hinzufügen";
     addMatchBtn.onclick=()=>addMatchToGameDay(day.id,"1v1");
     div.appendChild(addMatchBtn);
 
-    // Matches
     day.matches.forEach(m=>{
       const matchDiv = document.createElement("div");
       matchDiv.className="card";
@@ -205,8 +219,7 @@ function render(){
         matchDiv.appendChild(finBtn);
       }
 
-      // Teampunkte anzeigen
-      m.teams.forEach((team,idx)=>{
+      m.teams.forEach(team=>{
         matchDiv.innerHTML+=`<div><b>${team.players.join(", ")}</b>: ${team.totalScore}</div>`;
       });
 
@@ -235,6 +248,10 @@ function renderGlobalLeaderboard(){
   div.appendChild(table);
   app.appendChild(div);
 }
+
+// --- Initial render ---
+render();
+
 
 // --- Initial Render ---
 render();
