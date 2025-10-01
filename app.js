@@ -10,7 +10,7 @@ let state = loadState() || { players: {}, gameDays: [] };
 // --- Utilities ---
 function uid(){ return Math.random().toString(36).substr(2,9); }
 
-// --- Spieler ---
+// --- Spielerverwaltung ---
 function addPlayer(name){
   if(!name || Object.keys(state.players).length>=50) return;
   if(!state.players[name]){
@@ -31,12 +31,15 @@ function addMatchToGameDay(gameDayId, type="1v1"){
   const day = state.gameDays.find(gd=>gd.id===gameDayId);
   if(!day) return;
   const matchNumber = day.matches.length + 1;
-  const match = { id: uid(), number: matchNumber, type, teams: [], finished: false, pendingRounds:{} };
+  const match = { 
+    id: uid(), number: matchNumber, type, teams: [], finished: false, 
+    currentRound: {}, roundNumber: 0 
+  };
   day.matches.push(match);
   render();
 }
 
-// --- Spieler auswählen ---
+// --- Spieler für Match auswählen ---
 function selectPlayers(gameDayId, matchId){
   const day = state.gameDays.find(gd=>gd.id===gameDayId);
   const match = day.matches.find(m=>m.id===matchId);
@@ -60,15 +63,18 @@ function selectPlayers(gameDayId, matchId){
   render();
 }
 
-// --- Rundeingabe per Button ---
+// --- Rundeingabe pro Runde (alle Spieler gleichzeitig) ---
 function addRoundUI(gameDayId, matchId){
   const day = state.gameDays.find(gd=>gd.id===gameDayId);
   const match = day.matches.find(m=>m.id===matchId);
   if(!match || match.finished) return;
 
+  match.roundNumber++;
+  match.currentRound = {}; // neue Runde starten
+
   const roundDiv = document.createElement("div");
   roundDiv.className="card";
-  roundDiv.innerHTML=`<h4>Neue Runde für Match ${match.number}</h4>`;
+  roundDiv.innerHTML=`<h4>Runde ${match.roundNumber} für Match ${match.number}</h4>`;
 
   match.teams.forEach((team,tIdx)=>{
     team.players.forEach(p=>{
@@ -99,27 +105,52 @@ function addRoundUI(gameDayId, matchId){
         playerDiv.appendChild(sackDiv);
       }
 
-      const finishBtn = document.createElement("button");
-      finishBtn.textContent="Runde abschließen";
-      finishBtn.className="btn btn-danger";
-      finishBtn.onclick=()=>{
-        if(playerRound.length<4 || playerRound.some(v=>v===undefined)){
-          alert("Bitte alle 4 Säcke wählen!");
-          return;
-        }
-        if(!match.pendingRounds[tIdx]) match.pendingRounds[tIdx]={};
-        match.pendingRounds[tIdx][p] = playerRound;
-        alert(`Runde für ${p} gespeichert!`);
-      };
-
-      playerDiv.appendChild(finishBtn);
+      match.currentRound[p] = playerRound;
       roundDiv.appendChild(playerDiv);
     });
   });
 
+  const finishRoundBtn = document.createElement("button");
+  finishRoundBtn.className="btn btn-success";
+  finishRoundBtn.textContent="Runde abschließen";
+  finishRoundBtn.onclick=()=>{
+    let incomplete = false;
+    for(const team of match.teams){
+      for(const p of team.players){
+        const round = match.currentRound[p];
+        if(!round || round.length<4 || round.some(v=>v===undefined)){
+          incomplete = true; break;
+        }
+      }
+    }
+    if(incomplete){ alert("Alle Spieler müssen 4 Säcke wählen!"); return; }
+
+    // Punkte übertragen
+    match.teams.forEach((team,tIdx)=>{
+      team.players.forEach(p=>{
+        const round = match.currentRound[p];
+        team.rounds.push(round);
+        const points = round.reduce((a,b)=>a+b,0);
+        team.totalScore += points;
+
+        state.players[p].rounds.push(round);
+        state.players[p].points += points;
+
+        const oppIdx = tIdx===0?1:0;
+        const oppPoints = match.teams[oppIdx].rounds.flat().reduce((a,b)=>a+b,0);
+        state.players[p].opponentPoints += oppPoints;
+
+        state.players[p].averagePerSack = state.players[p].rounds.flat().reduce((a,b)=>a+b,0)/state.players[p].rounds.flat().length;
+      });
+    });
+
+    match.currentRound = {};
+    render();
+  };
+
+  roundDiv.appendChild(finishRoundBtn);
   app.appendChild(roundDiv);
 }
-
 // --- Match beenden ---
 function finishMatch(gameDayId, matchId){
   const day = state.gameDays.find(gd=>gd.id===gameDayId);
@@ -127,48 +158,84 @@ function finishMatch(gameDayId, matchId){
   if(!match || match.finished) return;
 
   // Prüfen, ob alle Spieler Runden haben
-  const incomplete = match.teams.some((team,tIdx)=>{
-    return team.players.some(p=>!match.pendingRounds[tIdx] || !match.pendingRounds[tIdx][p]);
-  });
-  if(incomplete){
-    alert("Nicht alle Spieler haben ihre Runde abgeschlossen!");
-    return;
-  }
-
-  // Punkte ins Match übertragen
-  match.teams.forEach((team,tIdx)=>{
-    team.players.forEach(p=>{
-      const round = match.pendingRounds[tIdx][p];
-      team.rounds.push(round);
-      const points = round.reduce((a,b)=>a+b,0);
-      team.totalScore += points;
-      state.players[p].rounds.push(round);
-      state.players[p].points += points;
-      const oppIdx = tIdx===0?1:0;
-      const oppPoints = match.teams[oppIdx].rounds.flat().reduce((a,b)=>a+b,0);
-      state.players[p].opponentPoints += oppPoints;
-      state.players[p].averagePerSack = state.players[p].rounds.flat().reduce((a,b)=>a+b,0)/state.players[p].rounds.flat().length;
-      state.players[p].games++;
-    });
-  });
+  const incomplete = match.teams.some(team =>
+    team.players.some(p => !team.rounds.length || team.rounds.length < match.roundNumber)
+  );
+  if(incomplete){ alert("Nicht alle Spieler haben Runden abgeschlossen!"); return; }
 
   // Sieger bestimmen
   const winnerIdx = match.teams[0].totalScore>match.teams[1].totalScore?0:1;
-  match.teams[winnerIdx].players.forEach(p=>state.players[p].wins++);
+  match.teams[winnerIdx].players.forEach(p => state.players[p].wins++);
 
   match.finished = true;
   render();
 }
 
-// --- Leaderboard ---
-function leaderboard(){
+// --- Spieltagsergebnis ---
+function renderGameDayResults(gameDayId){
+  const day = state.gameDays.find(gd=>gd.id===gameDayId);
+  if(!day) return;
+
+  const div = document.createElement("div");
+  div.className="card";
+  div.innerHTML=`<h3>Ergebnisse von ${day.name}</h3>`;
+
+  const table = document.createElement("table");
+  table.innerHTML="<tr><th>Spieler</th><th>Spiele</th><th>Siege</th><th>Punkte</th><th>Avg/Sack</th></tr>";
+
+  const playerStats = {};
+  day.matches.forEach(m=>{
+    m.teams.forEach((team,tIdx)=>{
+      team.players.forEach(p=>{
+        if(!playerStats[p]) playerStats[p]={games:0,wins:0,points:0,rounds:[]};
+        playerStats[p].games++;
+        if(tIdx=== (team.totalScore>team.totalScore?0:1)) playerStats[p].wins++;
+        playerStats[p].points += team.totalScore;
+        playerStats[p].rounds.push(...team.rounds);
+      });
+    });
+  });
+
+  Object.entries(playerStats).forEach(([name,stats])=>{
+    const avg = stats.rounds.flat().reduce((a,b)=>a+b,0)/stats.rounds.flat().length || 0;
+    const row = document.createElement("tr");
+    row.innerHTML=`<td>${name}</td><td>${stats.games}</td><td>${stats.wins}</td><td>${stats.points}</td><td>${avg.toFixed(2)}</td>`;
+    table.appendChild(row);
+  });
+
+  div.appendChild(table);
+  app.appendChild(div);
+}
+
+// --- Global Leaderboard ---
+function renderGlobalLeaderboard(){
+  // Entferne vorherige Leaderboard
+  const old = document.getElementById("globalLeaderboard");
+  if(old) old.remove();
+
+  const div = document.createElement("div");
+  div.className="card";
+  div.id="globalLeaderboard";
+  div.innerHTML="<h3>Globales Leaderboard</h3>";
+
+  const table = document.createElement("table");
+  table.innerHTML="<tr><th>Spieler</th><th>Spiele</th><th>Siege</th><th>Punkte</th><th>Avg/Sack</th></tr>";
+
   const players = Object.entries(state.players).map(([name,stats])=>({name,...stats}));
   players.sort((a,b)=>{
     if(b.wins!==a.wins) return b.wins-a.wins;
     if(b.points!==a.points) return b.points-a.points;
     return b.averagePerSack - a.averagePerSack;
   });
-  return players;
+
+  players.forEach(p=>{
+    const row = document.createElement("tr");
+    row.innerHTML=`<td>${p.name}</td><td>${p.games}</td><td>${p.wins}</td><td>${p.points}</td><td>${p.averagePerSack.toFixed(2)}</td>`;
+    table.appendChild(row);
+  });
+
+  div.appendChild(table);
+  app.appendChild(div);
 }
 
 // --- Render ---
@@ -193,6 +260,12 @@ function render(){
     addMatchBtn.textContent="+ Match hinzufügen";
     addMatchBtn.onclick=()=>addMatchToGameDay(day.id,"1v1");
     div.appendChild(addMatchBtn);
+
+    const showDayResultBtn = document.createElement("button");
+    showDayResultBtn.className="btn";
+    showDayResultBtn.textContent="Spieltagsergebnis anzeigen";
+    showDayResultBtn.onclick=()=>renderGameDayResults(day.id);
+    div.appendChild(showDayResultBtn);
 
     day.matches.forEach(m=>{
       const matchDiv = document.createElement("div");
@@ -230,29 +303,5 @@ function render(){
   });
 }
 
-// --- Global Leaderboard ---
-function renderGlobalLeaderboard(){
-  const div = document.createElement("div");
-  div.className="card";
-  div.innerHTML="<h3>Globales Leaderboard</h3>";
-
-  const table = document.createElement("table");
-  table.innerHTML="<tr><th>Spieler</th><th>Spiele</th><th>Siege</th><th>Punkte</th><th>Avg/Sack</th></tr>";
-
-  leaderboard().forEach(p=>{
-    const row = document.createElement("tr");
-    row.innerHTML=`<td>${p.name}</td><td>${p.games}</td><td>${p.wins}</td><td>${p.points}</td><td>${p.averagePerSack.toFixed(2)}</td>`;
-    table.appendChild(row);
-  });
-
-  div.appendChild(table);
-  app.appendChild(div);
-}
-
 // --- Initial render ---
 render();
-
-
-// --- Initial Render ---
-render();
-
