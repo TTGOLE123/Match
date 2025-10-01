@@ -1,4 +1,4 @@
-// app.js – vollständiger funktionierender Code
+// app.js – 
 const app = document.getElementById("app");
 
 // --- LocalStorage ---
