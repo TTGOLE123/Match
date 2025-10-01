@@ -10,7 +10,7 @@ let state = loadState() || { players: {}, gameDays: [] };
 // --- Utilities ---
 function uid(){ return Math.random().toString(36).substr(2,9); }
 
-// --- Spieler ---
+// --- Spielerverwaltung ---
 function addPlayer(name){
   if(!name || Object.keys(state.players).length>=50) return;
   if(!state.players[name]){
@@ -36,7 +36,7 @@ function addMatchToGameDay(gameDayId, type="1v1"){
   render();
 }
 
-// --- Spieler auswählen ---
+// --- Spieler für Match auswählen ---
 function selectPlayers(gameDayId, matchId){
   const day = state.gameDays.find(gd=>gd.id===gameDayId);
   const match = day.matches.find(m=>m.id===matchId);
@@ -74,7 +74,6 @@ function addRoundUI(gameDayId, matchId){
     team.players.forEach(p=>{
       const playerDiv = document.createElement("div");
       playerDiv.innerHTML=`<b>${p}</b> `;
-
       const playerRound = [];
 
       for(let i=0;i<4;i++){
@@ -90,9 +89,7 @@ function addRoundUI(gameDayId, matchId){
             [0,1,3].forEach(p2=>{
               if(p2!==points){
                 const b = sackDiv.querySelectorAll("button");
-                b.forEach(bu=>{
-                  if(bu.textContent==p2) bu.disabled=false;
-                });
+                b.forEach(bu=>{ if(bu.textContent==p2) bu.disabled=false; });
               }
             });
             btn.disabled=true;
@@ -106,7 +103,7 @@ function addRoundUI(gameDayId, matchId){
       finishBtn.textContent="Runde abschließen";
       finishBtn.className="btn btn-danger";
       finishBtn.onclick=()=>{
-        if(playerRound.length<4 || playerRound.some(v=>v===undefined)) { alert("Bitte alle 4 Säcke wählen!"); return; }
+        if(playerRound.length<4 || playerRound.some(v=>v===undefined)){ alert("Bitte alle 4 Säcke wählen!"); return; }
         match.teams[tIdx].rounds.push(playerRound);
         const roundPoints = playerRound.reduce((a,b)=>a+b,0);
         match.teams[tIdx].totalScore += roundPoints;
@@ -133,7 +130,7 @@ function finishMatch(gameDayId, matchId){
   if(!match || match.finished) return;
 
   match.finished = true;
-  const winnerIdx = match.teams[0].totalScore > match.teams[1].totalScore ? 0 : 1;
+  const winnerIdx = match.teams[0].totalScore>match.teams[1].totalScore?0:1;
 
   match.teams.forEach((team,tIdx)=>{
     team.players.forEach(p=>{
@@ -156,12 +153,12 @@ function leaderboard(){
   });
   return players;
 }
-
 // --- Render ---
 function render(){
   saveState(state);
   app.innerHTML="";
 
+  // Steuerung
   const ctrlDiv = document.createElement("div");
   ctrlDiv.innerHTML=`
     <button class="btn" onclick="addGameDay()">+ Spieltag</button>
@@ -169,18 +166,23 @@ function render(){
   `;
   app.appendChild(ctrlDiv);
 
+  // Spieltage
   state.gameDays.forEach(day=>{
     const div = document.createElement("div");
     div.className="card";
     div.innerHTML=`<h2>${day.name}</h2>`;
+
+    // Button Match hinzufügen
     const addMatchBtn = document.createElement("button");
     addMatchBtn.className="btn";
     addMatchBtn.textContent="+ Match hinzufügen";
     addMatchBtn.onclick=()=>addMatchToGameDay(day.id,"1v1");
     div.appendChild(addMatchBtn);
 
+    // Matches
     day.matches.forEach(m=>{
       const matchDiv = document.createElement("div");
+      matchDiv.className="card";
       matchDiv.innerHTML=`<b>Match ${m.number}</b> ${m.finished?"(Beendet)":""}`;
 
       if(m.teams.length===0 && !m.finished){
@@ -203,6 +205,7 @@ function render(){
         matchDiv.appendChild(finBtn);
       }
 
+      // Teampunkte anzeigen
       m.teams.forEach((team,idx)=>{
         matchDiv.innerHTML+=`<div><b>${team.players.join(", ")}</b>: ${team.totalScore}</div>`;
       });
@@ -219,17 +222,20 @@ function renderGlobalLeaderboard(){
   const div = document.createElement("div");
   div.className="card";
   div.innerHTML="<h3>Globales Leaderboard</h3>";
+
   const table = document.createElement("table");
   table.innerHTML="<tr><th>Spieler</th><th>Spiele</th><th>Siege</th><th>Punkte</th><th>Avg/Sack</th></tr>";
+
   leaderboard().forEach(p=>{
     const row = document.createElement("tr");
     row.innerHTML=`<td>${p.name}</td><td>${p.games}</td><td>${p.wins}</td><td>${p.points}</td><td>${p.averagePerSack.toFixed(2)}</td>`;
     table.appendChild(row);
   });
+
   div.appendChild(table);
   app.appendChild(div);
 }
 
-// --- Initial render ---
+// --- Initial Render ---
 render();
 
