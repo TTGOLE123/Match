@@ -1,4 +1,3 @@
-// app.js – 
 const app = document.getElementById("app");
 
 // --- LocalStorage ---
@@ -131,7 +130,7 @@ function leaderboard(){
   return players;
 }
 
-// --- Leaderboard Spieltag ---
+// --- Leaderboard für Spieltag ---
 function leaderboardByGameDay(gameDayId){
   const day = state.gameDays.find(gd=>gd.id===gameDayId);
   if(!day) return [];
@@ -157,7 +156,7 @@ function leaderboardByGameDay(gameDayId){
   return players;
 }
 
-// --- Spielerstatistik ---
+// --- Spielerstatistik anzeigen ---
 function renderPlayerStats(playerName){
   const p = state.players[playerName];
   if(!p) return alert("Spieler nicht gefunden");
@@ -178,7 +177,7 @@ function render(){
   saveState(state);
   app.innerHTML="";
 
-  // Controls
+  // --- Controls ---
   const ctrlDiv = document.createElement("div");
   ctrlDiv.innerHTML=`
     <button class="btn" onclick="addGameDay()">+ Neuen Spieltag erstellen</button>
@@ -187,6 +186,7 @@ function render(){
   `;
   app.appendChild(ctrlDiv);
 
+  // --- Spieltage ---
   state.gameDays.forEach(day=>{
     const div = document.createElement("div");
     div.className="card";
@@ -237,7 +237,7 @@ function render(){
   });
 }
 
-// --- Hilfsfunktionen Leaderboards & Spieler ---
+// --- Render global leaderboard ---
 function renderGlobalLeaderboard(){
   const div = document.createElement("div");
   div.className="card";
@@ -253,10 +253,35 @@ function renderGlobalLeaderboard(){
   app.appendChild(div);
 }
 
+// --- Render leaderboard Spieltag ---
 function renderLeaderboardByGameDay(gameDayId){
   const div = document.createElement("div");
   div.className="card";
   div.innerHTML=`<h3>Leaderboard Spieltag</h3>`;
   const table = document.createElement("table");
-  table.innerHTML="<tr><th>Spieler</th><th>Spiele</th><th>Siege</th
-render()
+  table.innerHTML="<tr><th>Spieler</th><th>Spiele</th><th>Siege</th><th>Punkte</th></tr>";
+  leaderboardByGameDay(gameDayId).forEach(p=>{
+    const row = document.createElement("tr");
+    row.innerHTML=`<td>${p.name}</td><td>${p.games}</td><td>${p.wins}</td><td>${p.points}</td>`;
+    table.appendChild(row);
+  });
+  div.appendChild(table);
+  app.appendChild(div);
+}
+
+// --- Spielerliste ---
+function renderPlayerList(){
+  const div = document.createElement("div");
+  div.className="card";
+  div.innerHTML="<h3>Spielerliste</h3>";
+  Object.keys(state.players).forEach(p=>{
+    const btn = document.createElement("button");
+    btn.textContent=p;
+    btn.className="btn";
+    btn.onclick=()=>renderPlayerStats(p);
+    div.appendChild(btn);
+  });
+  app.appendChild(div);
+}
+
+render();
